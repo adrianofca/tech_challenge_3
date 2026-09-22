@@ -27,10 +27,70 @@ Alternativas descartadas:
 - **ECS Fargate**: mais próximo de uma arquitetura de produção "ideal", mas inviável no Learner Lab pela restrição de criação de IAM role.
 - **Batch (ex.: SageMaker Batch Transform)**: descartado pelo motivo já explicado — a natureza clínica do problema exige resposta imediata.
 
+## Modelo
+
+Baseline: **TF-IDF + Logistic Regression** (scikit-learn), escolhido por ser leve e ter conversão limpa para ONNX Runtime na Etapa 4.
+
+O dataset ([Medical Abstracts TC Corpus](https://github.com/sebischair/Medical-Abstracts-TC-Corpus)) classifica por sistema/órgão, não por urgência clínica. Como não existe um dataset público de triagem de urgência pronto para uso, mapeamos as 5 classes originais para os 3 níveis de urgência do desafio, pela criticidade típica de cada categoria:
+
+| Classe original | Nível de urgência | Motivo |
+|---|---|---|
+| Doenças cardiovasculares | **urgente** | Ex.: infarto — tempo é crítico |
+| Doenças do sistema nervoso | **urgente** | Ex.: AVC, convulsões — tempo é crítico |
+| Neoplasias | **atenção** | Requer acompanhamento próximo, raramente emergência imediata |
+| Doenças digestivas | **atenção** | Amplo espectro de gravidade, tratado como "precisa de atenção" por padrão |
+| Condições patológicas gerais | **normal** | Categoria residual/menos específica do dataset |
+
+Acurácia do baseline no conjunto de teste: **62%** (ver `ml/train.py`, que imprime o `classification_report` completo ao treinar).
+
 ## Execução
 
-*(seção a ser preenchida conforme as próximas etapas)*
+### Pré-requisitos
+
+- [uv](https://docs.astral.sh/uv/) (gerencia Python 3.11 e as dependências automaticamente, sem instalação manual)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) com WSL2 habilitado (Windows)
+
+### Passo a passo
+
+```bash
+# 1. Instalar dependências (uv baixa o Python 3.11 se necessário)
+uv sync
+
+# 2. Treinar o modelo baseline (necessário: models/ não é versionado)
+uv run python ml/train.py
+
+# 3. Build da imagem Docker
+docker build -t triagem-api:baseline .
+
+# 4. Subir o container
+docker run -d --name triagem-api -p 8000:8000 triagem-api:baseline
+```
+
+### Testando a API
+
+```bash
+curl http://localhost:8000/health
+
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"texto": "paciente apresenta dor toracica intensa e falta de ar subita"}'
+```
+
+Resposta esperada:
+```json
+{ "classificacao": "urgente", "score": 0.34 }
+```
 
 ## Latência
 
-*(baseline vs. modelo otimizado — Etapa 4)*
+Baseline medido localmente, com a API rodando em container Docker, 50 requisições ao `/predict` (após 1 chamada de aquecimento), medidas do lado do cliente:
+
+| Métrica | Valor |
+|---|---|
+| Mínimo | 2,35 ms |
+| Média | 2,90 ms |
+| p50 | 2,59 ms |
+| p95 | 3,36 ms |
+| Máximo | 11,31 ms |
+
+Esse número serve de referência para a comparação com o modelo otimizado via ONNX Runtime na Etapa 4.
