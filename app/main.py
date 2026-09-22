@@ -16,6 +16,7 @@ class LaudoRequest(BaseModel):
 
 class LaudoResponse(BaseModel):
     classificacao: str
+    score: float
 
 
 @app.get("/health")
@@ -26,4 +27,5 @@ def health() -> dict[str, str]:
 @app.post("/predict", response_model=LaudoResponse)
 def predict(laudo: LaudoRequest) -> LaudoResponse:
     classificacao = model.predict([laudo.texto])[0]
-    return LaudoResponse(classificacao=classificacao)
+    score = model.predict_proba([laudo.texto]).max()
+    return LaudoResponse(classificacao=classificacao, score=score)
