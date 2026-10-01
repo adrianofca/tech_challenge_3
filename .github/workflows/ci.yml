@@ -55,6 +55,9 @@ jobs:
       - name: Instalar dependências (uv.lock)
         run: uv sync --locked
 
+      - name: Treinar modelo
+        run: uv run python ml/train.py
+
       - name: Pytest
         run: uv run pytest -v
 
