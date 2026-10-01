@@ -95,6 +95,13 @@ def carregar_dados(
     return resumo
 
 
+def _calcular_metricas(teste: pd.DataFrame, previsoes: Any) -> dict[str, float]:
+    return {
+        "accuracy": float(accuracy_score(teste[URGENCY_COLUMN], previsoes)),
+        "f1_macro": float(f1_score(teste[URGENCY_COLUMN], previsoes, average="macro")),
+    }
+
+
 def treinar_modelo(
     data_dir: Path = DATA_DIR, models_dir: Path = MODELS_DIR
 ) -> dict[str, Any]:
@@ -104,19 +111,27 @@ def treinar_modelo(
 
     pipeline = build_pipeline()
     pipeline.fit(treino[TEXT_COLUMN], treino[URGENCY_COLUMN])
-
     previsoes = pipeline.predict(teste[TEXT_COLUMN])
+
     metricas = {
-        "accuracy": float(accuracy_score(teste[URGENCY_COLUMN], previsoes)),
-        "f1_macro": float(f1_score(teste[URGENCY_COLUMN], previsoes, average="macro")),
+        **_calcular_metricas(teste, previsoes),
         "train_rows": len(treino),
         "test_rows": len(teste),
     }
-
     candidato = models_dir / CANDIDATE_NAME
     save_model(pipeline, candidato)
     logger.info("Candidato salvo em %s | métricas: %s", candidato, metricas)
     return {**metricas, "candidate_path": str(candidato)}
+
+
+def _gravar_metricas(models_dir: Path, resultado: dict[str, Any]) -> None:
+    metricas = {
+        **{k: v for k, v in resultado.items() if k != "candidate_path"},
+        "trained_at": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+    (models_dir / METRICS_NAME).write_text(
+        json.dumps(metricas, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def salvar_modelo(
@@ -137,13 +152,7 @@ def salvar_modelo(
     destino = models_dir / MODEL_NAME
     # os.replace é atômico: a API nunca vê um arquivo de modelo pela metade.
     os.replace(candidato, destino)
+    _gravar_metricas(models_dir, resultado)
 
-    metricas = {
-        **{k: v for k, v in resultado.items() if k != "candidate_path"},
-        "trained_at": datetime.now(UTC).isoformat(timespec="seconds"),
-    }
-    (models_dir / METRICS_NAME).write_text(
-        json.dumps(metricas, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
     logger.info("Modelo promovido para %s", destino)
     return str(destino)

@@ -2,16 +2,20 @@
 
 import importlib
 import sys
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
 
 import joblib
 import pytest
 from fastapi.testclient import TestClient
+from sklearn.pipeline import Pipeline
 
 NIVEIS = {"normal", "atencao", "urgente"}
 
 
 @pytest.fixture
-def client(tmp_path, modelo_sintetico):
+def client(tmp_path: Path, modelo_sintetico: Pipeline) -> Iterator[TestClient]:
     """Sobe a API apontando MODEL_PATH para um modelo sintético."""
     caminho = tmp_path / "model.joblib"
     joblib.dump(modelo_sintetico, caminho)
@@ -26,14 +30,14 @@ def client(tmp_path, modelo_sintetico):
     sys.modules.pop("app.main", None)
 
 
-def test_health_retorna_ok(client):
+def test_health_retorna_ok(client: TestClient) -> None:
     resposta = client.get("/health")
 
     assert resposta.status_code == 200
     assert resposta.json() == {"status": "ok"}
 
 
-def test_predict_retorna_classificacao_e_score(client):
+def test_predict_retorna_classificacao_e_score(client: TestClient) -> None:
     resposta = client.post(
         "/predict", json={"texto": "cardiac heart coronary infarction paciente"}
     )
@@ -44,7 +48,7 @@ def test_predict_retorna_classificacao_e_score(client):
     assert 0.0 <= corpo["score"] <= 1.0
 
 
-def test_predict_classifica_laudo_cardiaco_como_urgente(client):
+def test_predict_classifica_laudo_cardiaco_como_urgente(client: TestClient) -> None:
     resposta = client.post(
         "/predict", json={"texto": "cardiac heart coronary vascular infarction"}
     )
@@ -53,7 +57,9 @@ def test_predict_classifica_laudo_cardiaco_como_urgente(client):
 
 
 @pytest.mark.parametrize("payload", [{}, {"texto": None}, {"texto": 123}])
-def test_predict_rejeita_payload_invalido(client, payload):
+def test_predict_rejeita_payload_invalido(
+    client: TestClient, payload: dict[str, Any]
+) -> None:
     resposta = client.post("/predict", json=payload)
 
     assert resposta.status_code == 422

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from sklearn.pipeline import Pipeline
 
 from ml.train import (
     LABEL_COLUMN,
@@ -47,7 +48,7 @@ def dados_sinteticos(tmp_path: Path) -> Path:
 
 
 @pytest.fixture(scope="session")
-def modelo_sintetico():
+def modelo_sintetico() -> Pipeline:
     """Pipeline real (TF-IDF + LogReg) treinado com dados sintéticos."""
     dataframe = gerar_dataframe(12)
     dataframe[URGENCY_COLUMN] = dataframe[LABEL_COLUMN].map(URGENCY_BY_LABEL)

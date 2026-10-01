@@ -1,6 +1,7 @@
 """Testes das etapas do pipeline de treino/retreino (ml/pipeline.py)."""
 
 import json
+from pathlib import Path
 
 import joblib
 import pytest
@@ -8,7 +9,7 @@ import pytest
 from ml import pipeline
 
 
-def test_carregar_dados_devolve_resumo(dados_sinteticos):
+def test_carregar_dados_devolve_resumo(dados_sinteticos: Path) -> None:
     resumo = pipeline.carregar_dados(dados_sinteticos, min_samples=10)
 
     assert resumo["train_rows"] == 60
@@ -16,20 +17,20 @@ def test_carregar_dados_devolve_resumo(dados_sinteticos):
     assert set(resumo["class_distribution"]) == {"normal", "atencao", "urgente"}
 
 
-def test_carregar_dados_rejeita_dataset_pequeno(dados_sinteticos):
+def test_carregar_dados_rejeita_dataset_pequeno(dados_sinteticos: Path) -> None:
     # O padrão do projeto exige 2.000 amostras (requisito do enunciado).
     with pytest.raises(ValueError, match="amostras"):
         pipeline.carregar_dados(dados_sinteticos)
 
 
-def test_carregar_dados_rejeita_coluna_ausente(dados_sinteticos):
+def test_carregar_dados_rejeita_coluna_ausente(dados_sinteticos: Path) -> None:
     (dados_sinteticos / "medical_tc_train.csv").write_text("a,b\n1,2\n")
 
     with pytest.raises(ValueError, match="colunas ausentes"):
         pipeline.carregar_dados(dados_sinteticos, min_samples=1)
 
 
-def test_carregar_dados_rejeita_rotulo_desconhecido(dados_sinteticos):
+def test_carregar_dados_rejeita_rotulo_desconhecido(dados_sinteticos: Path) -> None:
     (dados_sinteticos / "medical_tc_train.csv").write_text(
         "condition_label,medical_abstract\n99,texto qualquer\n"
     )
@@ -38,7 +39,9 @@ def test_carregar_dados_rejeita_rotulo_desconhecido(dados_sinteticos):
         pipeline.carregar_dados(dados_sinteticos, min_samples=1)
 
 
-def test_treinar_modelo_gera_candidato_e_metricas(dados_sinteticos, tmp_path):
+def test_treinar_modelo_gera_candidato_e_metricas(
+    dados_sinteticos: Path, tmp_path: Path
+) -> None:
     models_dir = tmp_path / "models"
 
     resultado = pipeline.treinar_modelo(dados_sinteticos, models_dir)
@@ -50,7 +53,9 @@ def test_treinar_modelo_gera_candidato_e_metricas(dados_sinteticos, tmp_path):
     assert not (models_dir / pipeline.MODEL_NAME).exists()
 
 
-def test_salvar_modelo_promove_candidato(dados_sinteticos, tmp_path):
+def test_salvar_modelo_promove_candidato(
+    dados_sinteticos: Path, tmp_path: Path
+) -> None:
     models_dir = tmp_path / "models"
     resultado = pipeline.treinar_modelo(dados_sinteticos, models_dir)
 
@@ -67,8 +72,8 @@ def test_salvar_modelo_promove_candidato(dados_sinteticos, tmp_path):
 
 
 def test_salvar_modelo_rejeita_acuracia_baixa_e_preserva_modelo_atual(
-    dados_sinteticos, tmp_path
-):
+    dados_sinteticos: Path, tmp_path: Path
+) -> None:
     models_dir = tmp_path / "models"
     models_dir.mkdir()
     atual = models_dir / pipeline.MODEL_NAME

@@ -7,6 +7,7 @@ Airflow em um ambiente separado e executa este arquivo.
 
 import os
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -15,7 +16,7 @@ DAG_ID = "treino_triagem_laudos"
 
 
 @pytest.fixture(scope="module")
-def dagbag():
+def dagbag() -> Any:
     pytest.importorskip("airflow")
     # Não carregar as DAGs de exemplo do Airflow (a config é lida na importação).
     os.environ.setdefault("AIRFLOW__CORE__LOAD_EXAMPLES", "False")
@@ -27,12 +28,12 @@ def dagbag():
     return DagBag(dag_folder=str(DAGS_DIR))
 
 
-def test_dag_importa_sem_erros(dagbag):
+def test_dag_importa_sem_erros(dagbag: Any) -> None:
     assert dagbag.import_errors == {}
     assert DAG_ID in dagbag.dags
 
 
-def test_dag_tem_as_tres_etapas_em_ordem(dagbag):
+def test_dag_tem_as_tres_etapas_em_ordem(dagbag: Any) -> None:
     dag = dagbag.dags[DAG_ID]
 
     assert set(dag.task_ids) == {"carregar_dados", "treinar_modelo", "salvar_modelo"}
@@ -41,5 +42,5 @@ def test_dag_tem_as_tres_etapas_em_ordem(dagbag):
     assert dag.get_task("salvar_modelo").downstream_task_ids == set()
 
 
-def test_dag_nao_faz_catchup(dagbag):
+def test_dag_nao_faz_catchup(dagbag: Any) -> None:
     assert dagbag.dags[DAG_ID].catchup is False
