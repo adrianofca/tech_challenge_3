@@ -1,0 +1,139 @@
+name: CI
+
+# Roda a cada push em qualquer branch (e manualmente pela aba Actions).
+# Pull requests já exibem o resultado do push do último commit da branch.
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+# Se houver um novo push na mesma branch, cancela a execução anterior.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # 1) Lint: estilo e erros estáticos (ruff)
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Instalar dependências (uv.lock)
+        run: uv sync --locked
+
+      - name: Ruff check
+        run: uv run ruff check .
+
+      - name: Ruff format (verificação)
+        run: uv run ruff format --check .
+
+  # 2) Testes automatizados (pytest): API, treino e etapas do pipeline
+  test:
+    name: Testes (pytest)
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Instalar dependências (uv.lock)
+        run: uv sync --locked
+
+      - name: Pytest
+        run: uv run pytest -v
+
+  # 3) Integridade da DAG do Airflow (ambiente separado, com constraints oficiais)
+  dag:
+    name: DAG Airflow (integridade)
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AIRFLOW_VERSION: "3.3.2"
+      PYTHON_VERSION: "3.11"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Instalar Airflow em ambiente isolado
+        run: |
+          CONSTRAINTS="https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_VERSION}.txt"
+          uv venv "$RUNNER_TEMP/airflow-venv" --python "$PYTHON_VERSION"
+          uv pip install --python "$RUNNER_TEMP/airflow-venv/bin/python" \
+            "apache-airflow==${AIRFLOW_VERSION}" pandas scikit-learn pytest \
+            --constraint "$CONSTRAINTS"
+
+      - name: Validar DAG (pytest tests/test_dag.py)
+        env:
+          AIRFLOW_HOME: ${{ runner.temp }}/airflow-home
+        run: |
+          "$RUNNER_TEMP/airflow-venv/bin/python" -m pytest -v tests/test_dag.py
+
+  # 4) Build da imagem Docker + smoke test da API em container
+  build:
+    name: Build Docker + smoke test
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instalar uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Instalar dependências (uv.lock)
+        run: uv sync --locked
+
+      # models/ não é versionado: o Dockerfile precisa do modelo treinado.
+      - name: Treinar modelo baseline
+        run: uv run python ml/train.py
+
+      - name: Build da imagem
+        run: docker build -t triagem-api:ci .
+
+      - name: Subir container
+        run: docker run -d --name triagem-api -p 8000:8000 triagem-api:ci
+
+      - name: Smoke test (/health e /predict)
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/health; then break; fi
+            sleep 2
+          done
+          echo
+          curl -fsS http://localhost:8000/health
+          echo
+          curl -fsS -X POST http://localhost:8000/predict \
+            -H "Content-Type: application/json" \
+            -d '{"texto": "paciente apresenta dor toracica intensa e falta de ar subita"}'
+          echo
+
+      - name: Logs do container (em caso de falha)
+        if: failure()
+        run: docker logs triagem-api
+
+      - name: Parar container
+        if: always()
+        run: docker rm -f triagem-api
