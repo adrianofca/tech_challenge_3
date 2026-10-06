@@ -1,0 +1,73 @@
+{
+  "title": "Triagem de Laudos - API",
+  "uid": "triagem-api",
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Total de Requisições",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(http_requests_total)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "none" },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "title": "Latência Média (s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(http_request_duration_seconds_sum) / sum(http_request_duration_seconds_count)",
+          "legendFormat": "latência média"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s" },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Taxa de Erro (%)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "100 * sum(http_requests_total{status_code=~\"4..|5..\"}) / sum(http_requests_total)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    }
+  ]
+}
