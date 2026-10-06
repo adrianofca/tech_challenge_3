@@ -81,6 +81,42 @@ Resposta esperada:
 { "classificacao": "urgente", "score": 0.34 }
 ```
 
+## Monitoramento
+
+A API expõe métricas no formato Prometheus (`prometheus_client`) em `GET /metrics`: contagem de requisições por método/endpoint/status (`http_requests_total`) e tempo de resposta (`http_request_duration_seconds`), capturadas automaticamente por um middleware em `app/main.py` (o próprio `/metrics` fica fora da contagem, para não poluir os painéis com o scrape do Prometheus).
+
+### Subindo a stack completa
+
+```bash
+# 1. Treinar o modelo baseline (necessário: models/ não é versionado)
+uv run python ml/train.py
+
+# 2. Subir API + Prometheus + Grafana
+docker compose up -d --build
+```
+
+- API: http://localhost:8000
+- Prometheus: http://localhost:9090
+- Grafana: http://localhost:3000 (login `admin` / `admin`)
+
+O datasource do Prometheus e o dashboard já vêm **provisionados automaticamente** no Grafana (arquivos em `monitoring/grafana/provisioning/`), sem necessidade de configuração manual pela interface.
+
+### Dashboard
+
+Dashboard "Triagem de Laudos - API" (`monitoring/grafana/dashboards/triagem-api.json`), com 3 painéis:
+
+- **Total de Requisições** — `sum(http_requests_total)`
+- **Latência Média (s)** — `sum(http_request_duration_seconds_sum) / sum(http_request_duration_seconds_count)`
+- **Taxa de Erro (%)** — proporção de respostas com status 4xx/5xx sobre o total
+
+Para popular o dashboard, faça algumas chamadas ao `/predict` (ver "Testando a API") e aguarde alguns segundos (o Prometheus coleta a cada 5s).
+
+![Dashboard Grafana](docs/grafana-dashboard.png)
+
+### Persistência
+
+Os dados do Prometheus e do Grafana ficam em volumes Docker nomeados (`prometheus-data`, `grafana-data`) e sobrevivem a `docker compose down`. Para apagar tudo: `docker compose down -v`.
+
 ## Latência
 
 Baseline medido localmente, com a API rodando em container Docker, 50 requisições ao `/predict` (após 1 chamada de aquecimento), medidas do lado do cliente:
