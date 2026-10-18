@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import argparse
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import joblib
 import numpy as np
 import onnxruntime as ort
+from sklearn.pipeline import Pipeline
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_SKLEARN_MODEL = ROOT_DIR / "models" / "model.joblib"
@@ -32,7 +34,7 @@ TEXTOS_BENCHMARK = [
 ]
 
 
-def _inferir_sklearn(modelo, texto: str) -> tuple[str, float]:
+def _inferir_sklearn(modelo: Pipeline, texto: str) -> tuple[str, float]:
     """Executa as mesmas duas operações usadas pela API atual."""
     classe = str(modelo.predict([texto])[0])
     score = float(np.max(modelo.predict_proba([texto])[0]))
@@ -59,7 +61,12 @@ def _inferir_onnx(sessao: ort.InferenceSession, texto: str) -> tuple[str, float]
     return classe, score
 
 
-def _medir(funcao, textos: list[str], warmup: int, iterations: int) -> np.ndarray:
+def _medir(
+    funcao: Callable[[str], tuple[str, float]],
+    textos: list[str],
+    warmup: int,
+    iterations: int,
+) -> np.ndarray:
     for indice in range(warmup):
         funcao(textos[indice % len(textos)])
 
@@ -83,16 +90,16 @@ def _resumo(nome: str, duracoes: np.ndarray) -> dict[str, float | str]:
     }
 
 
-def benchmark(
-    sklearn_path: Path = DEFAULT_SKLEARN_MODEL,
-    onnx_path: Path = DEFAULT_ONNX_MODEL,
-    iterations: int = 500,
-    warmup: int = 30,
-) -> dict[str, dict[str, float | str]]:
+def _validar_parametros(iterations: int, warmup: int) -> None:
     if iterations < 1:
         raise ValueError("--iterations precisa ser maior que zero.")
     if warmup < 0:
         raise ValueError("--warmup não pode ser negativo.")
+
+
+def _carregar_modelos(
+    sklearn_path: Path, onnx_path: Path
+) -> tuple[Pipeline, ort.InferenceSession]:
     if not sklearn_path.is_file():
         raise FileNotFoundError(
             f"Modelo sklearn não encontrado: {sklearn_path}. "
@@ -103,13 +110,13 @@ def benchmark(
             f"Modelo ONNX não encontrado: {onnx_path}. "
             "Execute uv run python ml/export_onnx.py."
         )
-
     modelo = joblib.load(sklearn_path)
-    sessao = ort.InferenceSession(
-        str(onnx_path), providers=["CPUExecutionProvider"]
-    )
+    sessao = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+    return modelo, sessao
 
-    # Verifica equivalência funcional antes de comparar tempos.
+
+def _checar_equivalencia(modelo: Pipeline, sessao: ort.InferenceSession) -> None:
+    """Verifica equivalência funcional antes de comparar tempos."""
     divergencias = []
     for texto in TEXTOS_BENCHMARK:
         classe_sk, score_sk = _inferir_sklearn(modelo, texto)
@@ -117,30 +124,20 @@ def benchmark(
         if classe_sk != classe_onnx or not np.isclose(
             score_sk, score_onnx, rtol=1e-4, atol=1e-5
         ):
-            divergencias.append(
-                (texto, classe_sk, classe_onnx, score_sk, score_onnx)
-            )
+            divergencias.append((texto, classe_sk, classe_onnx, score_sk, score_onnx))
     if divergencias:
         raise RuntimeError(
-            "As saídas sklearn e ONNX divergem além da tolerância: "
-            f"{divergencias[:2]}"
+            f"As saídas sklearn e ONNX divergem além da tolerância: {divergencias[:2]}"
         )
 
-    sklearn_ms = _medir(
-        lambda texto: _inferir_sklearn(modelo, texto),
-        TEXTOS_BENCHMARK, warmup, iterations,
-    )
-    onnx_ms = _medir(
-        lambda texto: _inferir_onnx(sessao, texto),
-        TEXTOS_BENCHMARK, warmup, iterations,
-    )
 
-    resultados = {
-        "sklearn": _resumo("scikit-learn", sklearn_ms),
-        "onnx": _resumo("ONNX Runtime", onnx_ms),
-    }
-    media_sk = float(np.mean(sklearn_ms))
-    media_onnx = float(np.mean(onnx_ms))
+def _imprimir_relatorio(
+    resultados: dict[str, dict[str, float | str]],
+    media_sk: float,
+    media_onnx: float,
+    iterations: int,
+    warmup: int,
+) -> None:
     speedup = media_sk / media_onnx if media_onnx > 0 else float("inf")
     ganho = (1 - media_onnx / media_sk) * 100 if media_sk > 0 else 0.0
 
@@ -161,11 +158,47 @@ def benchmark(
     print(f"\nSpeedup (média): {speedup:.2f}x")
     print(f"Redução da latência média: {ganho:.1f}%")
     print("Validação: classes e scores equivalentes dentro da tolerância.")
+
+
+def benchmark(
+    sklearn_path: Path = DEFAULT_SKLEARN_MODEL,
+    onnx_path: Path = DEFAULT_ONNX_MODEL,
+    iterations: int = 500,
+    warmup: int = 30,
+) -> dict[str, dict[str, float | str]]:
+    _validar_parametros(iterations, warmup)
+    modelo, sessao = _carregar_modelos(sklearn_path, onnx_path)
+    _checar_equivalencia(modelo, sessao)
+
+    sklearn_ms = _medir(
+        lambda texto: _inferir_sklearn(modelo, texto),
+        TEXTOS_BENCHMARK,
+        warmup,
+        iterations,
+    )
+    onnx_ms = _medir(
+        lambda texto: _inferir_onnx(sessao, texto),
+        TEXTOS_BENCHMARK,
+        warmup,
+        iterations,
+    )
+
+    resultados = {
+        "sklearn": _resumo("scikit-learn", sklearn_ms),
+        "onnx": _resumo("ONNX Runtime", onnx_ms),
+    }
+    _imprimir_relatorio(
+        resultados,
+        float(np.mean(sklearn_ms)),
+        float(np.mean(onnx_ms)),
+        iterations,
+        warmup,
+    )
     return resultados
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(   
+    parser = argparse.ArgumentParser(
         description="Compara latência de scikit-learn e ONNX Runtime."
     )
     parser.add_argument("--sklearn-model", type=Path, default=DEFAULT_SKLEARN_MODEL)
