@@ -1,8 +1,10 @@
+import os
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-import joblib
+import numpy as np
+import onnxruntime as ort
 from fastapi import FastAPI, Request, Response
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
@@ -13,10 +15,12 @@ from prometheus_client import (
 )
 from pydantic import BaseModel
 
-MODEL_PATH = Path(__file__).resolve().parent.parent / "models" / "model.joblib"
+DEFAULT_MODEL_PATH = Path(__file__).resolve().parent.parent / "models" / "model.onnx"
+MODEL_PATH = Path(os.environ.get("MODEL_PATH", DEFAULT_MODEL_PATH))
 
 app = FastAPI(title="Triagem de Laudos Médicos")
-model = joblib.load(MODEL_PATH)
+session = ort.InferenceSession(str(MODEL_PATH), providers=["CPUExecutionProvider"])
+INPUT_NAME = session.get_inputs()[0].name
 
 # Registro próprio (em vez do padrão global): evita colisão de métricas
 # duplicadas quando o módulo é recarregado mais de uma vez no mesmo processo
@@ -74,8 +78,17 @@ def metrics() -> Response:
     return Response(generate_latest(METRICS_REGISTRY), media_type=CONTENT_TYPE_LATEST)
 
 
+def inferir(texto: str) -> tuple[str, float]:
+    entrada = np.asarray([[texto]], dtype=object)
+    nomes = [saida.name for saida in session.get_outputs()]
+    valores = session.run(None, {INPUT_NAME: entrada})
+    saidas = dict(zip(nomes, valores, strict=True))
+    classificacao = str(saidas["label"][0])
+    score = float(np.max(saidas["probabilities"][0]))
+    return classificacao, score
+
+
 @app.post("/predict", response_model=LaudoResponse)
 def predict(laudo: LaudoRequest) -> LaudoResponse:
-    classificacao = model.predict([laudo.texto])[0]
-    score = model.predict_proba([laudo.texto]).max()
+    classificacao, score = inferir(laudo.texto)
     return LaudoResponse(classificacao=classificacao, score=score)

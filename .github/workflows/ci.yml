@@ -55,9 +55,6 @@ jobs:
       - name: Instalar dependências (uv.lock)
         run: uv sync --locked
 
-      - name: Treinar modelo
-        run: uv run python ml/train.py
-
       - name: Pytest
         run: uv run pytest -v
 
@@ -109,9 +106,12 @@ jobs:
       - name: Instalar dependências (uv.lock)
         run: uv sync --locked
 
-      # models/ não é versionado: o Dockerfile precisa do modelo treinado.
+      # models/ não é versionado: o Dockerfile precisa do modelo treinado e exportado.
       - name: Treinar modelo baseline
         run: uv run python ml/train.py
+
+      - name: Exportar modelo para ONNX
+        run: uv run python ml/export_onnx.py
 
       - name: Build da imagem
         run: docker build -t triagem-api:ci .

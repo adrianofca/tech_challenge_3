@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 from sklearn.pipeline import Pipeline
 
+from ml.export_onnx import converter_para_onnx
 from ml.train import (
     LABEL_COLUMN,
     TEXT_COLUMN,
@@ -55,3 +56,9 @@ def modelo_sintetico() -> Pipeline:
     pipeline = build_pipeline()
     pipeline.fit(dataframe[TEXT_COLUMN], dataframe[URGENCY_COLUMN])
     return pipeline
+
+
+@pytest.fixture(scope="session")
+def modelo_sintetico_onnx(modelo_sintetico: Pipeline) -> bytes:
+    """O mesmo modelo sintético, convertido para ONNX (usado pela API)."""
+    return converter_para_onnx(modelo_sintetico)
