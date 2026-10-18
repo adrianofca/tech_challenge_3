@@ -6,19 +6,17 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-import joblib
 import pytest
 from fastapi.testclient import TestClient
-from sklearn.pipeline import Pipeline
 
 NIVEIS = {"normal", "atencao", "urgente"}
 
 
 @pytest.fixture
-def client(tmp_path: Path, modelo_sintetico: Pipeline) -> Iterator[TestClient]:
-    """Sobe a API apontando MODEL_PATH para um modelo sintético."""
-    caminho = tmp_path / "model.joblib"
-    joblib.dump(modelo_sintetico, caminho)
+def client(tmp_path: Path, modelo_sintetico_onnx: bytes) -> Iterator[TestClient]:
+    """Sobe a API apontando MODEL_PATH para um modelo ONNX sintético."""
+    caminho = tmp_path / "model.onnx"
+    caminho.write_bytes(modelo_sintetico_onnx)
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setenv("MODEL_PATH", str(caminho))

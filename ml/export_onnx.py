@@ -37,7 +37,7 @@ def _carregar_pipeline(model_path: Path) -> Pipeline:
     return modelo
 
 
-def _converter_para_onnx(modelo: Pipeline) -> bytes:
+def converter_para_onnx(modelo: Pipeline) -> bytes:
     """Converte o pipeline para ONNX (entrada: coluna de strings, uma por laudo).
 
     zipmap=False mantém as probabilidades como matriz NumPy, facilitando
@@ -56,7 +56,7 @@ def _converter_para_onnx(modelo: Pipeline) -> bytes:
 def exportar_modelo(model_path: Path, output_path: Path) -> Path:
     """Converte um Pipeline de texto sklearn para ONNX e retorna o caminho."""
     modelo = _carregar_pipeline(model_path)
-    onnx_bytes = _converter_para_onnx(modelo)
+    onnx_bytes = converter_para_onnx(modelo)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(onnx_bytes)
