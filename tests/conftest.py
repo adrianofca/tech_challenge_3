@@ -10,7 +10,6 @@ import pandas as pd
 import pytest
 from sklearn.pipeline import Pipeline
 
-from ml.export_onnx import converter_para_onnx
 from ml.train import (
     LABEL_COLUMN,
     TEXT_COLUMN,
@@ -60,5 +59,12 @@ def modelo_sintetico() -> Pipeline:
 
 @pytest.fixture(scope="session")
 def modelo_sintetico_onnx(modelo_sintetico: Pipeline) -> bytes:
-    """O mesmo modelo sintético, convertido para ONNX (usado pela API)."""
+    """O mesmo modelo sintético, convertido para ONNX (usado pela API).
+
+    Import feito aqui dentro, não no topo do arquivo: skl2onnx não está
+    instalado no ambiente isolado do job `dag` do CI, que só roda
+    tests/test_dag.py mas carrega este conftest.py de qualquer forma.
+    """
+    from ml.export_onnx import converter_para_onnx
+
     return converter_para_onnx(modelo_sintetico)
