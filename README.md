@@ -59,10 +59,13 @@ uv sync
 # 2. Treinar o modelo baseline (necessário: models/ não é versionado)
 uv run python ml/train.py
 
-# 3. Build da imagem Docker
+# 3. Exportar o modelo para ONNX (a API serve com o modelo otimizado)
+uv run python ml/export_onnx.py
+
+# 4. Build da imagem Docker
 docker build -t triagem-api:baseline .
 
-# 4. Subir o container
+# 5. Subir o container
 docker run -d --name triagem-api -p 8000:8000 triagem-api:baseline
 ```
 
@@ -91,7 +94,10 @@ A API expõe métricas no formato Prometheus (`prometheus_client`) em `GET /metr
 # 1. Treinar o modelo baseline (necessário: models/ não é versionado)
 uv run python ml/train.py
 
-# 2. Subir API + Prometheus + Grafana
+# 2. Exportar o modelo para ONNX (a API serve com o modelo otimizado)
+uv run python ml/export_onnx.py
+
+# 3. Subir API + Prometheus + Grafana
 docker compose up -d --build
 ```
 
@@ -117,9 +123,31 @@ Para popular o dashboard, faça algumas chamadas ao `/predict` (ver "Testando a 
 
 Os dados do Prometheus e do Grafana ficam em volumes Docker nomeados (`prometheus-data`, `grafana-data`) e sobrevivem a `docker compose down`. Para apagar tudo: `docker compose down -v`.
 
-## Latência
+## Otimização de Latência (ONNX Runtime)
 
-Baseline medido localmente, com a API rodando em container Docker, 50 requisições ao `/predict` (após 1 chamada de aquecimento), medidas do lado do cliente:
+**Técnica aplicada:** conversão do pipeline scikit-learn (TF-IDF + Logistic Regression) para **ONNX Runtime**, via `skl2onnx` (`ml/export_onnx.py`). A API (`app/main.py`) serve inferência com o modelo ONNX em produção, não mais com o `.joblib` original.
+
+Antes de comparar latência, `ml/benchmark.py` valida que as predições do modelo ONNX são equivalentes às do modelo original (mesma classe prevista, score dentro de uma tolerância numérica) — só então mede o tempo. Isso evita comparar a velocidade de um modelo que mudou de comportamento.
+
+### Comparação: scikit-learn vs. ONNX Runtime
+
+Inferência local, em processo (sem overhead de rede/HTTP), batch=1, 500 iterações após 30 de aquecimento:
+
+| Métrica | scikit-learn | ONNX Runtime |
+|---|---|---|
+| Média | 0,54 ms | 0,06 ms |
+| Mediana (p50) | 0,52 ms | 0,05 ms |
+| p95 | 0,63 ms | 0,06 ms |
+| Mínimo | 0,51 ms | 0,05 ms |
+| Máximo | 1,14 ms | 0,15 ms |
+
+**Speedup médio: ~9,7x (redução de ~90% na latência média).**
+
+Reproduzir: `uv run python ml/benchmark.py` (requer `models/model.joblib` e `models/model.onnx` já gerados).
+
+### Baseline end-to-end via HTTP (Etapa 1, para referência)
+
+Medido com a API já rodando em container Docker, 50 requisições reais ao `/predict` (inclui overhead de rede e FastAPI — não é diretamente comparável à medição em processo acima):
 
 | Métrica | Valor |
 |---|---|
@@ -128,5 +156,3 @@ Baseline medido localmente, com a API rodando em container Docker, 50 requisiç�
 | p50 | 2,59 ms |
 | p95 | 3,36 ms |
 | Máximo | 11,31 ms |
-
-Esse número serve de referência para a comparação com o modelo otimizado via ONNX Runtime na Etapa 4.
