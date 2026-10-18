@@ -72,6 +72,17 @@ def _validar(dataframe: pd.DataFrame, nome: str, min_samples: int) -> None:
         raise ValueError(f"{nome}: existem rótulos fora do mapeamento de urgência")
 
 
+def _montar_resumo(treino: pd.DataFrame, teste: pd.DataFrame) -> dict[str, Any]:
+    return {
+        "train_rows": len(treino),
+        "test_rows": len(teste),
+        "class_distribution": {
+            str(classe): int(qtd)
+            for classe, qtd in treino[URGENCY_COLUMN].value_counts().items()
+        },
+    }
+
+
 def carregar_dados(
     data_dir: Path = DATA_DIR, min_samples: int = MIN_SAMPLES
 ) -> dict[str, Any]:
@@ -83,14 +94,7 @@ def carregar_dados(
     # O conjunto de teste só precisa ser válido e não estar vazio.
     _validar(teste, "teste", min_samples=1)
 
-    resumo = {
-        "train_rows": len(treino),
-        "test_rows": len(teste),
-        "class_distribution": {
-            str(classe): int(qtd)
-            for classe, qtd in treino[URGENCY_COLUMN].value_counts().items()
-        },
-    }
+    resumo = _montar_resumo(treino, teste)
     logger.info("Dados carregados: %s", resumo)
     return resumo
 
@@ -134,6 +138,14 @@ def _gravar_metricas(models_dir: Path, resultado: dict[str, Any]) -> None:
     )
 
 
+def _validar_qualidade(accuracy: float, min_accuracy: float, candidato: Path) -> None:
+    if accuracy < min_accuracy:
+        raise ValueError(
+            f"Acurácia {accuracy:.3f} abaixo do mínimo {min_accuracy:.3f}: "
+            f"modelo em produção mantido (candidato em {candidato})"
+        )
+
+
 def salvar_modelo(
     resultado: dict[str, Any],
     models_dir: Path = MODELS_DIR,
@@ -141,13 +153,7 @@ def salvar_modelo(
 ) -> str:
     """Promove o candidato a ``model.joblib`` se atingir a qualidade mínima."""
     candidato = Path(resultado["candidate_path"])
-    accuracy = resultado["accuracy"]
-
-    if accuracy < min_accuracy:
-        raise ValueError(
-            f"Acurácia {accuracy:.3f} abaixo do mínimo {min_accuracy:.3f}: "
-            f"modelo em produção mantido (candidato em {candidato})"
-        )
+    _validar_qualidade(resultado["accuracy"], min_accuracy, candidato)
 
     destino = models_dir / MODEL_NAME
     # os.replace é atômico: a API nunca vê um arquivo de modelo pela metade.

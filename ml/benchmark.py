@@ -131,18 +131,13 @@ def _checar_equivalencia(modelo: Pipeline, sessao: ort.InferenceSession) -> None
         )
 
 
-def _imprimir_relatorio(
-    resultados: dict[str, dict[str, float | str]],
-    media_sk: float,
-    media_onnx: float,
-    iterations: int,
-    warmup: int,
-) -> None:
+def _calcular_ganho(media_sk: float, media_onnx: float) -> tuple[float, float]:
     speedup = media_sk / media_onnx if media_onnx > 0 else float("inf")
     ganho = (1 - media_onnx / media_sk) * 100 if media_sk > 0 else 0.0
+    return speedup, ganho
 
-    print("\nComparação de latência — inferência local, batch=1")
-    print(f"Iterações por runtime: {iterations} (aquecimento: {warmup})")
+
+def _imprimir_tabela(resultados: dict[str, dict[str, float | str]]) -> None:
     print(f"{'Métrica':<18}{'scikit-learn (ms)':>20}{'ONNX Runtime (ms)':>20}")
     for chave, rotulo in [
         ("mean_ms", "Média"),
@@ -155,21 +150,28 @@ def _imprimir_relatorio(
             f"{rotulo:<18}{resultados['sklearn'][chave]:>20.4f}"
             f"{resultados['onnx'][chave]:>20.4f}"
         )
+
+
+def _imprimir_relatorio(
+    resultados: dict[str, dict[str, float | str]],
+    media_sk: float,
+    media_onnx: float,
+    iterations: int,
+    warmup: int,
+) -> None:
+    speedup, ganho = _calcular_ganho(media_sk, media_onnx)
+
+    print("\nComparação de latência — inferência local, batch=1")
+    print(f"Iterações por runtime: {iterations} (aquecimento: {warmup})")
+    _imprimir_tabela(resultados)
     print(f"\nSpeedup (média): {speedup:.2f}x")
     print(f"Redução da latência média: {ganho:.1f}%")
     print("Validação: classes e scores equivalentes dentro da tolerância.")
 
 
-def benchmark(
-    sklearn_path: Path = DEFAULT_SKLEARN_MODEL,
-    onnx_path: Path = DEFAULT_ONNX_MODEL,
-    iterations: int = 500,
-    warmup: int = 30,
-) -> dict[str, dict[str, float | str]]:
-    _validar_parametros(iterations, warmup)
-    modelo, sessao = _carregar_modelos(sklearn_path, onnx_path)
-    _checar_equivalencia(modelo, sessao)
-
+def _medir_ambos(
+    modelo: Pipeline, sessao: ort.InferenceSession, warmup: int, iterations: int
+) -> tuple[np.ndarray, np.ndarray]:
     sklearn_ms = _medir(
         lambda texto: _inferir_sklearn(modelo, texto),
         TEXTOS_BENCHMARK,
@@ -182,11 +184,30 @@ def benchmark(
         warmup,
         iterations,
     )
+    return sklearn_ms, onnx_ms
 
-    resultados = {
+
+def _montar_resultados(
+    sklearn_ms: np.ndarray, onnx_ms: np.ndarray
+) -> dict[str, dict[str, float | str]]:
+    return {
         "sklearn": _resumo("scikit-learn", sklearn_ms),
         "onnx": _resumo("ONNX Runtime", onnx_ms),
     }
+
+
+def benchmark(
+    sklearn_path: Path = DEFAULT_SKLEARN_MODEL,
+    onnx_path: Path = DEFAULT_ONNX_MODEL,
+    iterations: int = 500,
+    warmup: int = 30,
+) -> dict[str, dict[str, float | str]]:
+    _validar_parametros(iterations, warmup)
+    modelo, sessao = _carregar_modelos(sklearn_path, onnx_path)
+    _checar_equivalencia(modelo, sessao)
+
+    sklearn_ms, onnx_ms = _medir_ambos(modelo, sessao, warmup, iterations)
+    resultados = _montar_resultados(sklearn_ms, onnx_ms)
     _imprimir_relatorio(
         resultados,
         float(np.mean(sklearn_ms)),
